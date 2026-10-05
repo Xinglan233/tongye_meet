@@ -1,4 +1,4 @@
-import {API_BASE} from './api-base'
+import {API_BASE,PRODUCTION_BASE,PRODUCTION_PORT} from './api-base'
 import {test,expect} from '@playwright/test'
 import {build,preview,type PreviewServer} from 'vite'
 import {mkdtempSync,readFileSync,writeFileSync,cpSync} from 'node:fs'
@@ -7,12 +7,12 @@ import {join as joinPath} from 'node:path'
 import {create,join,closeSheet} from './ui-helpers'
 let server:PreviewServer
 const output=mkdtempSync(joinPath(tmpdir(),'tongye-ocr-pwa-'))
-test.beforeAll(async()=>{process.env.VITE_API_URL=API_BASE;await build({build:{outDir:output,emptyOutDir:false},logLevel:'warn'});server=await preview({build:{outDir:output},preview:{host:'127.0.0.1',port:5174,strictPort:true},logLevel:'warn'})},120000)
-test.afterAll(async()=>{server?.httpServer.closeAllConnections();await new Promise<void>(resolve=>server?.httpServer.close(()=>resolve()))})
+test.beforeAll(async()=>{process.env.VITE_API_URL=API_BASE;await build({build:{outDir:output,emptyOutDir:false},logLevel:'warn'});server=await preview({build:{outDir:output},preview:{host:'127.0.0.1',port:PRODUCTION_PORT,strictPort:true},logLevel:'warn'})},120000)
+test.afterAll(async()=>{if(!server)return;server.httpServer.closeAllConnections();await new Promise<void>(resolve=>server.httpServer.close(()=>resolve()))})
 test('明确准备中文英文引擎后，真实生产SW断网重启仍能截图识别',async({browser})=>{
  test.setTimeout(120000)
  const ownerContext=await browser.newContext(),memberContext=await browser.newContext({serviceWorkers:'allow'}),owner=await ownerContext.newPage(),member=await memberContext.newPage()
- const link=await create(owner,'OCR离线准备','http://localhost:5174');await join(member,link,'离线识别成员');await member.evaluate(async()=>{await navigator.serviceWorker.ready});await member.reload();expect(await member.evaluate(()=>!!navigator.serviceWorker.controller)).toBe(true)
+ const link=await create(owner,'OCR离线准备',PRODUCTION_BASE);await join(member,link,'离线识别成员');await member.evaluate(async()=>{await navigator.serviceWorker.ready});await member.reload();expect(await member.evaluate(()=>!!navigator.serviceWorker.controller)).toBe(true)
  const manifest=JSON.parse(readFileSync(joinPath(output,'ocr-offline-manifest.json'),'utf8'))
  const precacheResources=await member.evaluate(async()=>{const keys=await caches.keys();const urls:string[]=[];for(const key of keys)if(key.includes('precache'))for(const request of await (await caches.open(key)).keys())urls.push(request.url);return urls})
  expect(precacheResources.some(url=>url.includes('traineddata')||/ocr-(engine|recognition)-/.test(url))).toBe(false)
@@ -29,13 +29,13 @@ test('A准备后升级同路径B资源，重新准备可恢复完整B并保持�
  test.setTimeout(120000)
  const ownerContext=await browser.newContext(),memberContext=await browser.newContext({serviceWorkers:'allow'}),owner=await ownerContext.newPage(),member=await memberContext.newPage()
  try{
-  const link=await create(owner,'OCR升级重准备','http://localhost:5174');await join(member,link,'升级识别成员');await member.evaluate(async()=>{await navigator.serviceWorker.ready});await member.reload()
+  const link=await create(owner,'OCR升级重准备',PRODUCTION_BASE);await join(member,link,'升级识别成员');await member.evaluate(async()=>{await navigator.serviceWorker.ready});await member.reload()
   await member.getByRole('button',{name:'截图识别',exact:true}).click();await member.getByRole('button',{name:'准备离线识别',exact:true}).click();await expect(member.getByRole('status').filter({hasText:'离线识别已准备，可在断网后识别截图'})).toBeVisible({timeout:15000})
   const old=await member.evaluate(async()=>{const cache=await caches.open('tongye-ocr-state-v1');return (await (await cache.match(location.origin+'/tesseract/offline-ready'))!.json()) as {cacheName:string;manifest:{revision:string}}}),before=old.manifest.revision
   await closeSheet(member)
   // Keep another A-controlled client alive so an offline reload cannot quietly
   // activate B and conceal destruction of the resources needed by A.
-  const anchor=await memberContext.newPage();await anchor.goto('http://localhost:5174');await anchor.evaluate(async()=>{await navigator.serviceWorker.ready});await anchor.reload()
+  const anchor=await memberContext.newPage();await anchor.goto(PRODUCTION_BASE);await anchor.evaluate(async()=>{await navigator.serviceWorker.ready});await anchor.reload()
   // A real second production build changes bytes at an unchanged worker URL.
   // Public fixtures are copied so this regression never changes source assets.
   const variant=mkdtempSync(joinPath(tmpdir(),'tongye-ocr-public-b-'));cpSync('public',variant,{recursive:true});const workerPath=joinPath(variant,'tesseract/worker.min.js');writeFileSync(workerPath,readFileSync(workerPath,'utf8')+'\n// OCR upgrade fixture B\n')
