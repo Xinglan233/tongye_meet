@@ -8,8 +8,8 @@ import {API_BASE} from './api-base'
 test('共享小队复用分钟编辑器，步长不改原值，刷新导出保留本人安排',async({browser})=>{
  const pack=await publishFixture(browser,'figma-shared-editor'),context=await browser.newContext({viewport:{width:390,height:900}}),page=await context.newPage()
  await page.goto(`/events/${pack.event.id}?view=companions`)
- await page.getByLabel('小队标题').fill('共享编辑验收');await page.getByLabel('建队码',{exact:true}).fill('test-create');await page.getByRole('button',{name:'创建',exact:true}).click()
- await page.getByLabel('怎么称呼').fill('本人');await page.getByRole('button',{name:'加入小队',exact:true}).click()
+ await page.getByLabel('小队标题').fill('共享编辑验收');await page.getByRole('button',{name:'创建',exact:true}).click()
+ await expect(page.getByRole('button',{name:'日程设置',exact:true})).toBeVisible()
  await page.getByRole('button',{name:'手动添加',exact:true}).click();const d=page.getByRole('dialog',{name:'安排',exact:true});await d.getByRole('button',{name:'自定义',exact:true}).click()
  await d.getByLabel('活动名').fill('本人分钟安排');await d.getByLabel('开始时间',{exact:true}).fill('13:07');await d.getByLabel('结束时间',{exact:true}).fill('13:52');await expect(d.getByText('时长 45 分钟',{exact:true})).toBeVisible()
  await d.getByRole('button',{name:'开始时间推迟15分钟'}).click();await expect(d.getByLabel('开始时间',{exact:true})).toHaveValue('13:22');await d.getByRole('button',{name:'开始时间提前15分钟'}).click()

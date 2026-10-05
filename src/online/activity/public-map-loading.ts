@@ -14,12 +14,13 @@ const defaultIO:PublicMapIO={prepared:loadPreparedActivity,list:(id,signal)=>lis
 export function startPublicMap(activity:ActivityDTO,mapId:string,callbacks:{show:(url:string)=>void;notice:(message:string)=>void},io:PublicMapIO=defaultIO):{stop:()=>void;retry:()=>void} {
  let controller=new AbortController(),request=0
  const map=activity.eventPackage.event.extensions?.convention.maps.find(m=>m.id===mapId)
- let active=true,fresh=false,shown=false,cachedRelease:(()=>void)|undefined,networkURL='',networkError='',cacheDone=false
- const reportFailure=()=>{if(active&&cacheDone&&networkError)callbacks.notice(shown?(fresh?'当前地图仍可查看，联网刷新未成功，可重试':'正在查看已下载地图，联网刷新未成功，可重试'):networkError)}
+ let active=true,fresh=false,shown=false,cachedRelease:(()=>void)|undefined,networkURL='',networkError='',cacheNotice='',cacheDone=false
+ const reportFailure=()=>{if(active&&cacheDone&&networkError)callbacks.notice(shown?(fresh?'当前地图仍可查看，联网刷新未成功，可重试':'正在查看已下载地图，联网刷新未成功，可重试'):cacheNotice||networkError)}
  if(map&&activity.visibility!=='private'){
   void io.prepared(activity.id,'public',activity).then(prepared=>{
    if(!prepared)return
-   if(!active||fresh||prepared.status!=='ready'||prepared.activity.id!==activity.id||(prepared.activity.visibility||'public')!==(activity.visibility||'public')||!prepared.blobURLs[mapId]){prepared.release();return}
+   if(!active||fresh||prepared.status!=='ready'||prepared.activity.id!==activity.id||(prepared.activity.visibility||'public')!==(activity.visibility||'public')){prepared.release();return}
+   if(!prepared.blobURLs[mapId]){cacheNotice='这张地图未下载，请联网后重新准备';callbacks.notice(cacheNotice);prepared.release();return}
    cachedRelease=prepared.release;shown=true;callbacks.show(prepared.blobURLs[mapId]);callbacks.notice('正在查看已下载地图')
   }).catch(()=>{/* Invalid/incomplete cache never replaces current map data. */}).finally(()=>{cacheDone=true;reportFailure()})
  }else cacheDone=true

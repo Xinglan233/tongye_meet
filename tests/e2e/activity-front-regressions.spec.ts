@@ -13,9 +13,9 @@ test('组队响应丢失保留原幂等请求，重载重试只恢复同一小�
  test.setTimeout(90000)
  const pack=await publishFixture(browser,'create-lost-response'),context=await browser.newContext(),page=await context.newPage(),attempts:unknown[]=[],ids:string[]=[]
  await page.route('**/api/v1/groups',async route=>{if(route.request().method()!=='POST')return route.continue();attempts.push(route.request().postDataJSON());const response=await route.fetch();expect(response.status()).toBe(200);ids.push((await response.json()).data.id);if(attempts.length===1)return route.abort('failed');await route.fulfill({response})})
- const create=async()=>{await page.getByLabel('建队码',{exact:true}).fill('test-create');await page.getByLabel('小队标题').fill('丢响应恢复小队');await page.getByRole('button',{name:'创建',exact:true}).click()}
+ const create=async()=>{await page.getByLabel('小队标题').fill('丢响应恢复小队');await page.getByRole('button',{name:'创建',exact:true}).click()}
  await page.goto(`/events/${pack.event.id}?view=companions`);await create();await expect(page.getByRole('alert')).toContainText('连接失败')
- expect(await localRecord(page,`activity-create-group:${pack.event.id}`)).toEqual(attempts[0]);await page.reload();await create();await expect(page.getByRole('alert')).toContainText('上次创建的小队已恢复');await expect(page.getByLabel('小队标题')).toHaveValue('丢响应恢复小队');await page.getByRole('button',{name:'丢响应恢复小队',exact:true}).click();await expect(page.getByLabel('怎么称呼')).toBeVisible()
+ expect(await localRecord(page,`activity-create-group:${pack.event.id}`)).toMatchObject(attempts[0] as Record<string,unknown>);expect(await localRecord(page,`activity-create-group:${pack.event.id}`)).toMatchObject({creatorName:'我'});await page.reload();await create();await expect(page.getByRole('alert')).toContainText('上次创建的小队已恢复');await expect(page.getByLabel('小队标题')).toHaveValue('丢响应恢复小队');await page.getByRole('button',{name:'丢响应恢复小队',exact:true}).click();await expect(page.getByRole('button',{name:'日程设置',exact:true})).toBeVisible()
  expect(attempts).toHaveLength(2);expect(attempts[1]).toEqual(attempts[0]);expect(ids[1]).toBe(ids[0]);await expect.poll(()=>localRecord(page,`activity-create-group:${pack.event.id}`)).toBeUndefined();await context.close()
 })
 
@@ -23,7 +23,7 @@ test('明确活动版本冲突清除旧组队请求；刷新后使用新版本�
  test.setTimeout(90000)
  const pack=await publishFixture(browser,'create-version-conflict'),context=await browser.newContext(),page=await context.newPage(),token='c'.repeat(64)
  await page.goto(`/events/${pack.event.id}?view=companions`)
- await expect(page.getByLabel('建队码',{exact:true})).toBeVisible()
+ await expect(page.getByLabel('小队标题')).toBeVisible()
  await adminSession(request,token)
  const previous=(await (await request.get(`${API_BASE}/api/v1/events/${pack.event.id}`)).json()).data
  const changed=structuredClone(pack);changed.event.description='同一活动已发布新资料'
@@ -31,11 +31,11 @@ test('明确活动版本冲突清除旧组队请求；刷新后使用新版本�
  expect(result.status()).toBe(200);const latest=(await result.json()).data
  const attempts:{operationId:string;sourceEventRevision:number}[]=[]
  await page.route('**/api/v1/groups',async route=>{if(route.request().method()==='POST')attempts.push(route.request().postDataJSON());await route.continue()})
- await page.getByLabel('建队码',{exact:true}).fill('test-create');await page.getByLabel('小队标题').fill('版本冲突后创建')
+ await page.getByLabel('小队标题').fill('版本冲突后创建')
  let reply=page.waitForResponse(r=>r.request().method()==='POST'&&r.url().endsWith('/groups'));await page.getByRole('button',{name:'创建',exact:true}).click()
  expect((await reply).status()).toBe(409);await expect(page.getByText('活动版本已变化',{exact:true})).toBeVisible()
  await expect.poll(()=>localRecord(page,`activity-create-group:${pack.event.id}`)).toBeUndefined()
- await page.reload();await page.getByLabel('建队码',{exact:true}).fill('test-create');await page.getByLabel('小队标题').fill('版本冲突后创建')
+ await page.reload();await page.getByLabel('小队标题').fill('版本冲突后创建')
  reply=page.waitForResponse(r=>r.request().method()==='POST'&&r.url().endsWith('/groups'));await page.getByRole('button',{name:'创建',exact:true}).click();expect((await reply).status()).toBe(200)
  expect(attempts).toHaveLength(2);expect(attempts[0].sourceEventRevision).toBe(previous.revision);expect(attempts[1].sourceEventRevision).toBe(latest.revision);expect(attempts[0].operationId).not.toBe(attempts[1].operationId)
  await context.close()

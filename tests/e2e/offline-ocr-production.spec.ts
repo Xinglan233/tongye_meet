@@ -31,8 +31,11 @@ test('A准备后升级同路径B资源，重新准备可恢复完整B并保持�
  try{
   const link=await create(owner,'OCR升级重准备','http://localhost:5174');await join(member,link,'升级识别成员');await member.evaluate(async()=>{await navigator.serviceWorker.ready});await member.reload()
   await member.getByRole('button',{name:'截图识别',exact:true}).click();await member.getByRole('button',{name:'准备离线识别',exact:true}).click();await expect(member.getByRole('status').filter({hasText:'离线识别已准备，可在断网后识别截图'})).toBeVisible({timeout:15000})
-  const before=await member.evaluate(async()=>{const cache=await caches.open('tongye-ocr-state-v1');return (await (await cache.match(location.origin+'/tesseract/offline-ready'))!.json()).manifest.revision})
+  const old=await member.evaluate(async()=>{const cache=await caches.open('tongye-ocr-state-v1');return (await (await cache.match(location.origin+'/tesseract/offline-ready'))!.json()) as {cacheName:string;manifest:{revision:string}}}),before=old.manifest.revision
   await closeSheet(member)
+  // Keep another A-controlled client alive so an offline reload cannot quietly
+  // activate B and conceal destruction of the resources needed by A.
+  const anchor=await memberContext.newPage();await anchor.goto('http://localhost:5174');await anchor.evaluate(async()=>{await navigator.serviceWorker.ready});await anchor.reload()
   // A real second production build changes bytes at an unchanged worker URL.
   // Public fixtures are copied so this regression never changes source assets.
   const variant=mkdtempSync(joinPath(tmpdir(),'tongye-ocr-public-b-'));cpSync('public',variant,{recursive:true});const workerPath=joinPath(variant,'tesseract/worker.min.js');writeFileSync(workerPath,readFileSync(workerPath,'utf8')+'\n// OCR upgrade fixture B\n')
@@ -40,11 +43,22 @@ test('A准备后升级同路径B资源，重新准备可恢复完整B并保持�
   const after=JSON.parse(readFileSync(joinPath(output,'ocr-offline-manifest.json'),'utf8')).revision;expect(after).not.toBe(before)
   await member.evaluate(async()=>{const registration=await navigator.serviceWorker.getRegistration();await registration!.update()})
   await member.waitForFunction(async()=>!!(await navigator.serviceWorker.getRegistration())?.waiting,{},{timeout:15000})
-  await member.evaluate(async()=>{const registration=await navigator.serviceWorker.getRegistration();await new Promise<void>(resolve=>{navigator.serviceWorker.addEventListener('controllerchange',()=>resolve(),{once:true});registration!.waiting!.postMessage({type:'SKIP_WAITING'})})})
-  await member.reload();await member.getByRole('button',{name:'截图识别',exact:true}).click();await expect(member.getByRole('status').filter({hasText:'离线识别资源不完整'})).toBeVisible({timeout:15000})
+  await member.evaluate(()=>{const page=window as unknown as {ocrControllerChanged:boolean};page.ocrControllerChanged=false;navigator.serviceWorker.addEventListener('controllerchange',()=>{page.ocrControllerChanged=true})})
+  await member.getByRole('button',{name:'截图识别',exact:true}).click();await member.getByRole('button',{name:'重新准备离线识别',exact:true}).click()
+  await expect(member.getByRole('status').filter({hasText:'请先保存修改并更新应用，再准备离线识别'})).toBeVisible({timeout:15000})
+  expect(await member.evaluate(()=>!!(window as unknown as {ocrControllerChanged:boolean}).ocrControllerChanged)).toBe(false)
+  expect(await member.evaluate(async name=>(await caches.keys()).includes(name),old.cacheName)).toBe(true)
+  expect(await member.evaluate(async()=>{const cache=await caches.open('tongye-ocr-state-v1');return (await (await cache.match(location.origin+'/tesseract/offline-ready'))!.json()).manifest.revision})).toBe(before)
+  await closeSheet(member);await memberContext.setOffline(true);await member.reload();await member.getByRole('button',{name:'截图识别',exact:true}).click();await expect(member.getByText(/离线识别已准备 ·/)).toBeVisible({timeout:15000})
+  expect(await member.evaluate(async()=>!!(await navigator.serviceWorker.getRegistration())?.waiting)).toBe(true)
+  await closeSheet(member);await memberContext.setOffline(false)
+  await Promise.all([member.waitForNavigation({waitUntil:'load'}),member.getByRole('button',{name:'保存后更新',exact:true}).click()])
+  await member.getByRole('button',{name:'截图识别',exact:true}).click();await expect(member.getByRole('status').filter({hasText:'离线识别资源不完整'})).toBeVisible({timeout:15000})
   await member.getByRole('button',{name:'准备离线识别',exact:true}).click();await expect(member.getByRole('status').filter({hasText:'离线识别已准备，可在断网后识别截图'})).toBeVisible({timeout:10000})
   const ready=await member.evaluate(async()=>{const cache=await caches.open('tongye-ocr-state-v1');return (await (await cache.match(location.origin+'/tesseract/offline-ready'))!.json()).manifest.revision});expect(ready).toBe(after)
   await closeSheet(member);await memberContext.setOffline(true);await member.reload();await member.getByRole('button',{name:'截图识别',exact:true}).click();await expect(member.getByText(/离线识别已准备 ·/)).toBeVisible()
+  const image=await member.evaluate(()=>{const canvas=document.createElement('canvas');canvas.width=1600;canvas.height=700;const ctx=canvas.getContext('2d')!;ctx.fillStyle='white';ctx.fillRect(0,0,1600,700);ctx.fillStyle='black';ctx.font='72px sans-serif';ctx.fillText('12:00-13:00',80,150);ctx.fillText('A-01 Test',80,300);ctx.fillText('Meeting',80,450);return canvas.toDataURL('image/png').split(',')[1]})
+  await member.getByRole('dialog',{name:'截图识别',exact:true}).locator('input[type=file]').setInputFiles({name:'offline-after-upgrade.png',mimeType:'image/png',buffer:Buffer.from(image,'base64')});await expect(member.getByRole('button',{name:'保存校对结果',exact:true})).toBeVisible({timeout:60000})
   const damagedRejected=await member.evaluate(async()=>{const state=await caches.open('tongye-ocr-state-v1'),record=await (await state.match(location.origin+'/tesseract/offline-ready'))!.json(),cache=await caches.open(record.cacheName);await cache.put(location.origin+'/tesseract/worker.min.js',new Response('corrupted worker'));try{await fetch('/tesseract/worker.min.js');return false}catch{return true}});expect(damagedRejected).toBe(true)
  }finally{await ownerContext.close();await memberContext.close()}
 })

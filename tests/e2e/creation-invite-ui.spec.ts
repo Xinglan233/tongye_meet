@@ -2,8 +2,10 @@ import {test,expect,type Page} from '@playwright/test'
 import {mkdirSync} from 'node:fs'
 import {settleTheme} from './figma-visual'
 import {publishFixture,loginAdmin,close} from './activity-fixture'
+import {API_BASE} from './api-base'
+import {randomBytes,randomUUID} from 'node:crypto'
 
-test('V18真实长建队码：管理员生成复制、队长一次建队、历史状态与撤销',async({browser})=>{
+test('旧长建队码兼容：管理员生成复制、一次消费、历史状态与撤销',async({browser})=>{
  test.setTimeout(180_000)
  const pack=await publishFixture(browser,'creation-invite-ui')
  const adminContext=await browser.newContext({permissions:['clipboard-read','clipboard-write'],viewport:{width:390,height:900}})
@@ -20,10 +22,14 @@ test('V18真实长建队码：管理员生成复制、队长一次建队、历�
  await screen('admin-code',admin)
  await leader.goto(`/events/${pack.event.id}?view=companions`)
  await expect(leader.getByRole('button',{name:'创建',exact:true})).toBeDisabled()
- await leader.getByLabel('建队码',{exact:true}).fill(code);await leader.getByLabel('小队标题',{exact:true}).fill('真实文字码小队')
+ await expect(leader.getByLabel('建队码',{exact:true})).toHaveCount(0);await leader.getByLabel('小队标题',{exact:true}).fill('真实文字码小队')
  await screen('create',leader)
- const accepted=leader.waitForResponse(r=>r.request().method()==='POST'&&r.url().endsWith('/groups'))
- await leader.getByRole('button',{name:'创建',exact:true}).click();expect((await accepted).status()).toBe(200)
+ // Public creation is code-free. Explicit older creation grants remain valid
+ // at the API boundary and must retain one-use/revocation guarantees.
+ const activity=(await (await leaderContext.request.get(`${API_BASE}/api/v1/events/${pack.event.id}`)).json()).data
+ const legacyRequest=(creationCode:string)=>({creationCode,sourceEventId:pack.event.id,sourceEventRevision:activity.revision,title:'真实文字码小队',managerToken:randomBytes(32).toString('hex'),inviteToken:randomBytes(32).toString('hex'),operationId:randomUUID()})
+ const body=legacyRequest(code),accepted=await leaderContext.request.post(API_BASE+'/api/v1/groups',{data:body});expect(accepted.status()).toBe(200)
+ const group=(await accepted.json()).data;await leader.goto(`/groups/${group.id}#manager=${body.managerToken}&invite=${body.inviteToken}`)
  await leader.getByLabel('怎么称呼').fill('队长');await leader.getByRole('button',{name:'加入小队',exact:true}).click()
  await leader.getByRole('button',{name:'邀请队员',exact:true}).click();const dialog=leader.getByRole('dialog',{name:'管理小队'})
  await expect(dialog.locator('svg[width="180"]')).toHaveCount(0)
@@ -41,9 +47,9 @@ test('V18真实长建队码：管理员生成复制、队长一次建队、历�
  await admin.getByRole('button',{name:'撤销该码',exact:true}).first().click();const revoked=admin.waitForResponse(r=>r.request().method()==='DELETE'&&r.url().includes('/admin/creation-invites/'))
  await admin.getByRole('button',{name:'确认撤销',exact:true}).click();expect((await revoked).status()).toBe(200)
  await expect(admin.locator('.creation-invite-history').getByText('已撤销',{exact:true})).toBeVisible()
- const outsider=await browser.newContext(),other=await outsider.newPage();await other.goto(`/events/${pack.event.id}?view=companions`);await other.getByLabel('小队标题').fill('被拒绝的小队');await other.getByLabel('建队码',{exact:true}).fill(code)
- await other.getByRole('button',{name:'创建',exact:true}).click();await expect(other.getByRole('alert')).toContainText('已被使用')
- await other.getByLabel('建队码',{exact:true}).fill(revokedCode);await other.getByRole('button',{name:'创建',exact:true}).click();await expect(other.getByRole('alert')).toContainText('已被撤销');await outsider.close()
+ const outsider=await browser.newContext()
+ const used=await outsider.request.post(API_BASE+'/api/v1/groups',{data:legacyRequest(code)});expect(used.status()).toBe(403);expect((await used.json()).error.message).toContain('已被使用')
+ const rejected=await outsider.request.post(API_BASE+'/api/v1/groups',{data:legacyRequest(revokedCode)});expect(rejected.status()).toBe(403);expect((await rejected.json()).error.message).toContain('已被撤销');await outsider.close()
  expect(await leader.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
  await Promise.all([adminContext.close(),leaderContext.close()])
 })
@@ -64,8 +70,8 @@ test('创建中离开同行页不被晚到响应拉回，小队恢复权限仍�
  const pack=await publishFixture(browser,'creation-leave-pending'),context=await browser.newContext(),page=await context.newPage()
  let release!:()=>void;const gate=new Promise<void>(resolve=>{release=resolve});let observed!:()=>void;const written=new Promise<void>(resolve=>{observed=resolve})
  await page.route('**/api/v1/groups',async route=>{if(route.request().method()!=='POST')return route.continue();const response=await route.fetch();expect(response.status()).toBe(200);observed();await gate;await route.fulfill({response})})
- await page.goto(`/events/${pack.event.id}?view=companions`);await page.getByLabel('建队码',{exact:true}).fill('test-create');await page.getByLabel('小队标题').fill('晚到创建的小队');await page.getByRole('button',{name:'创建',exact:true}).click();await written
- try{await expect(page.getByRole('button',{name:'创建中',exact:true})).toBeDisabled();await expect(page.getByLabel('建队码',{exact:true})).toBeDisabled();await page.locator('.tabbar').getByRole('button',{name:'我的',exact:true}).click()}finally{release()}
+ await page.goto(`/events/${pack.event.id}?view=companions`);await page.getByLabel('小队标题').fill('晚到创建的小队');await page.getByRole('button',{name:'创建',exact:true}).click();await written
+ try{await expect(page.getByRole('button',{name:'创建中',exact:true})).toBeDisabled();await expect(page.getByLabel('小队标题')).toBeDisabled();await page.locator('.tabbar').getByRole('button',{name:'我的',exact:true}).click()}finally{release()}
  await expect(page.getByRole('heading',{name:'我的',exact:true})).toBeVisible();await expect(page.getByLabel('怎么称呼')).toHaveCount(0)
  await expect.poll(()=>page.evaluate(()=>location.search)).toContain('view=me')
  await page.locator('.tabbar').getByRole('button',{name:'同行',exact:true}).click();await expect(page.getByRole('button',{name:'晚到创建的小队',exact:true})).toBeVisible();await context.close()

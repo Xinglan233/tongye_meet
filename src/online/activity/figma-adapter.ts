@@ -14,6 +14,8 @@ export function planReference(activity:ActivityDTO,plan:PersonalPlan,date:string
 export function invitationTarget(raw:string,origin:string):string{
  let url:URL;try{url=new URL(raw.trim())}catch{throw new Error('请粘贴收到的完整邀请链接')}
  const match=url.pathname.match(/^\/groups\/([a-z0-9_-]+)$/i),hash=new URLSearchParams(url.hash.slice(1)),token=hash.get('invite')
- if(url.origin!==origin||url.username||url.password||url.search||!match||hash.size!==1||!token||!/^[a-f0-9]{64}$/.test(token))throw new Error('此处需要当前站点的小队邀请链接，管理或个人恢复链接不能用于加入')
- return `/groups/${match[1]}#invite=${token}`
+ const date=url.searchParams.get('date'),day=date&&/^\d{4}-\d{2}-\d{2}$/.test(date)?new Date(date+'T00:00:00Z'):undefined
+ const validQuery=!url.search||(url.searchParams.size===1&&day&&!Number.isNaN(day.getTime())&&day.toISOString().slice(0,10)===date)
+ if(url.origin!==origin||url.username||url.password||!validQuery||!match||hash.size!==1||!token||!/^[a-f0-9]{64}$/.test(token))throw new Error('此处需要当前站点的小队邀请链接，管理或个人恢复链接不能用于加入')
+ return `/groups/${match[1]}${date?'?date='+date:''}#invite=${token}`
 }
