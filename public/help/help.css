@@ -900,6 +900,10 @@ textarea {
 .figma-code-row-action{border-top:1px solid var(--line);padding-top:8px;margin-top:8px;text-align:right}
 .figma-danger-action{color:var(--danger)}
 
+/* Imported factual source notes can contain long URLs. */
+.figma-source-note{min-width:0;overflow-wrap:anywhere;word-break:break-word}
+.figma-source-note p{white-space:pre-wrap}
+
 .help-shell{max-width:800px;margin:0 auto;padding:24px 16px calc(64px + env(safe-area-inset-bottom));overflow-wrap:anywhere;line-height:1.7}
 .help-nav{display:flex;flex-wrap:wrap;gap:8px;padding-bottom:24px;border-bottom:1px solid var(--line)}
 .help-nav .btn{font-weight:500;text-decoration:none;border-radius:12px;min-height:44px}

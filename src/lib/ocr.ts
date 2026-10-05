@@ -1,4 +1,5 @@
-import { createWorker } from 'tesseract.js'
+import type { createWorker } from 'tesseract.js'
+import {loadOfflineOcrStatus} from './offline-ocr'
 import type { DayKey, RawBooking, RecognitionGroup } from '../types'
 import { matchSession } from './catalog'
 
@@ -160,15 +161,20 @@ async function getWorker(
 ): Promise<OcrWorker> {
   if (!workerPromise) {
     const base = import.meta.env.BASE_URL
-    workerPromise = createWorker(['chi_sim', 'eng'], 1, {
+    workerPromise = (async()=>{
+      if(!navigator.onLine&&(await loadOfflineOcrStatus()).state!=='ready')throw new Error('离线识别尚未准备或资源不完整，请联网后准备；也可手动填写')
+      const {createWorker}=await import('tesseract.js')
+      return createWorker(['chi_sim', 'eng'], 1, {
       workerPath: `${base}tesseract/worker.min.js`,
       corePath: `${base}tesseract/tesseract-core-simd-lstm.wasm.js`,
       langPath: `${base}tesseract`,
       gzip: false,
+      cacheMethod: 'none',
       logger: (m: { status: string; progress: number }) => {
         if (onProgress) onProgress(m.progress, m.status)
       }
     })
+    })().catch(error=>{workerPromise=null;throw error})
   }
   return workerPromise
 }
