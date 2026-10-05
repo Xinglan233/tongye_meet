@@ -2,11 +2,11 @@
 (visitor_storage_budget) and media retain their independent existing budgets.
 64 MiB includes UTF-8 event snapshots, member responses/availability, full group
 operation receipts and tombstones, plus conservative row/index overhead.
-Existing rows are accounted even when already above a limit; reads/deletes and
+Existing rows are accounted even when already above a limit， reads/deletes and
 shrinking writes remain possible, while further growth fails atomically.
 Receipt replay is retained for 24h, at most 64 per scope. Create/join receipts
 stay on their owning row. Delete retries retain at most 10,000 tombstones / 7d.
-Group/member audit metadata separately retains only the newest 10,000 records;
+Group/member audit metadata separately retains only the newest 10,000 records，
 server-generated action/UUID/timestamp fields reserve 1 KiB per record (10 MiB
 additional application metadata allowance). Event/admin audits are unaffected.
 Constants are mirrored in shared/group-contract.ts. */

@@ -31,7 +31,7 @@ test('真实公布场次带准确日期分钟与位置，跨日进入正确日�
  expect(backup.plan.response.busy).toHaveLength(1)
  expect(backup.plan.response.busy[0]).toMatchObject({source:'session',sessionId:'demo-workshop-1003-02',date:'2026-10-04',start:'13:07',end:'13:52',title:'手作体验示例',location:'示例 A 区'})
  expect(backup.plan.favorites).toEqual([]);expect(backup.plan.routes).toEqual([])
- await close(page);await tab(page,'活动');await page.locator('.sched-row').filter({hasText:'13:07'}).click();await page.getByRole('button',{name:'加入计划',exact:true}).click()
+ await close(page);await tab(page,'活动');await page.locator('.sched-row').filter({hasText:'13:07'}).click();await expect(page.getByRole('button',{name:'已加入计划',exact:true})).toBeDisabled();await close(page)
  await tab(page,'我的');await page.getByRole('button',{name:'恢复与导出',exact:true}).click()
  expect(JSON.parse(await download(page,'导出个人计划')).plan.response.busy).toHaveLength(1)
 })
