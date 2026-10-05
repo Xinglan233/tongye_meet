@@ -14,8 +14,13 @@ function pendingUploads():Pending[]{
 function clearPending(pending:Pending){const value=localStorage.getItem(pendingKey(pending));if(value){try{const current=JSON.parse(value) as Pending;if(current.eventId===pending.eventId&&current.uploadToken===pending.uploadToken)localStorage.removeItem(pendingKey(pending))}catch{/* Retain unknown recovery data. */}}}
 const token=()=>Array.from(crypto.getRandomValues(new Uint8Array(32)),b=>b.toString(16).padStart(2,'0')).join('')
 export const mediaReadURL=(eventId:string,assetId:string)=>`/api/media/read?eventId=${encodeURIComponent(eventId)}&assetId=${encodeURIComponent(assetId)}`
-export const listAssets=(eventId:string,adminToken?:string)=>api<MediaAssetDTO[]>(`${adminToken?'/admin':''}/events/${encodeURIComponent(eventId)}/assets`,adminToken)
-export async function fetchMapImage(eventId:string,assetId:string,adminToken?:string):Promise<Blob>{const response=await fetch(mediaReadURL(eventId,assetId),{headers:adminToken?{Authorization:'Bearer '+adminToken}:{},cache:'no-store',signal:AbortSignal.timeout(30000)});if(!response.ok)throw new ApiFailure('MEDIA_UNAVAILABLE','地图读取失败，列表和计划仍可使用',response.status);return response.blob()}
+export const listAssets=(eventId:string,adminToken?:string,signal?:AbortSignal)=>api<MediaAssetDTO[]>(`${adminToken?'/admin':''}/events/${encodeURIComponent(eventId)}/assets`,adminToken,undefined,'GET',signal)
+export async function fetchMapImage(eventId:string,assetId:string,adminToken?:string,signal?:AbortSignal):Promise<Blob>{
+ const controller=new AbortController(),abort=()=>controller.abort();if(signal?.aborted)controller.abort();else signal?.addEventListener('abort',abort,{once:true});const timeout=setTimeout(abort,30000)
+ try{const response=await fetch(mediaReadURL(eventId,assetId),{headers:adminToken?{Authorization:'Bearer '+adminToken}:{},cache:'no-store',signal:controller.signal});if(!response.ok)throw new ApiFailure('MEDIA_UNAVAILABLE','地图读取失败，请重试；地点列表和计划仍可使用',response.status);return await response.blob()}
+ catch(error){if(error instanceof ApiFailure)throw error;throw new ApiFailure('MEDIA_UNAVAILABLE','地图连接中断或等待超时，请联网后重试；地点列表和计划仍可使用',0)}
+ finally{clearTimeout(timeout);signal?.removeEventListener('abort',abort)}
+}
 export async function finishMapUpload(pending:Pending):Promise<MediaAssetDTO>{const res=await fetch('/api/media/finish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({eventId:pending.eventId,assetId:pending.assetId,uploadToken:pending.uploadToken}),signal:AbortSignal.timeout(60000)}),result=await res.json();if(!res.ok)throw new ApiFailure(result.error?.code||'MEDIA_UNAVAILABLE',result.error?.message||'地图处理失败，请保留原文件重试',res.status);clearPending(pending);return result.data}
 export function pendingMapUploads(eventId?:string):Pending[]{return pendingUploads().filter(pending=>!eventId||pending.eventId===eventId)}
 export function pendingMapUpload(eventId?:string):Pending|undefined{return pendingMapUploads(eventId)[0]}

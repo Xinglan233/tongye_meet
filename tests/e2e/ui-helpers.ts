@@ -19,4 +19,4 @@ export async function review(page:Page){await page.getByRole('button',{name:'核
 
 export async function previewAdminSave(page:Page){const status=await page.getByRole('dialog').getByLabel('活动状态').inputValue();await page.getByRole('dialog').getByRole('button',{name:status==='draft'?'保存草稿':status==='published'?'发布':'预览保存',exact:true}).click()}
 
-export async function customArrangement(page:Page){await page.getByRole('button',{name:'新增日程安排',exact:true}).click();await page.getByRole('dialog',{name:'新增日程安排'}).getByRole('button',{name:'添加自定义安排',exact:true}).click();await expect(page.getByRole('dialog',{name:'个人安排'})).toBeVisible()}
+export async function customArrangement(page:Page){await page.getByRole('button',{name:'加入计划',exact:true}).click();await page.getByRole('dialog',{name:'加入计划'}).getByRole('button',{name:'添加自定义安排',exact:true}).click();await expect(page.getByRole('dialog',{name:'个人安排'})).toBeVisible()}

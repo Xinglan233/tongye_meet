@@ -1,8 +1,16 @@
-import { useEffect,useState } from 'react'
-import type { ActivityDTO } from '../../../shared/activity-contract'
-import type { PathResult } from '../../../shared/routing'
-import {loadPreparedActivity} from './offline'
-import {matchingMapAsset,mapImageIdentity} from './map-asset-identity'
-import { MapCanvas } from './MapCanvas'
-import { listAssets,fetchMapImage } from './media-client'
-export function PublicMap({activity,mapId,selectedPoiId,favoriteIds,onSelectPoi,route,visiblePoiIds}:{activity:ActivityDTO;mapId:string;selectedPoiId?:string;favoriteIds:string[];onSelectPoi:(id:string)=>void;route?:PathResult;visiblePoiIds?:string[]}){const [url,setUrl]=useState('');const [urlIdentity,setUrlIdentity]=useState('');const [error,setError]=useState('');const convention=activity.eventPackage.event.extensions?.convention;const map=convention?.maps.find(m=>m.id===mapId);const imageIdentity=mapImageIdentity(activity.eventPackage,map);useEffect(()=>{let active=true;let objectURL='';let release:(()=>void)|undefined;setUrl('');setError('');if(!map)return;void(async()=>{try{const assets=await listAssets(activity.id);const asset=matchingMapAsset(activity.eventPackage,map,assets);if(!asset)throw new Error('地图版本与活动资料不一致，请刷新活动；地点列表仍可使用');const blob=await fetchMapImage(activity.id,asset.id);objectURL=URL.createObjectURL(blob);if(active){setUrl(objectURL);setUrlIdentity(imageIdentity)}else URL.revokeObjectURL(objectURL)}catch(e){try{const prepared=await loadPreparedActivity(activity.id,'public',activity);if(prepared?.blobURLs[mapId]&&prepared.status!=='stale'&&active){release=prepared.release;setUrl(prepared.blobURLs[mapId]);setUrlIdentity(imageIdentity);setError('正在查看已下载地图')}else{prepared?.release();if(active)setError(prepared?.status==='ready'&&!prepared.blobURLs[mapId]?'这张地图未下载，请联网后重新准备':(e as Error).message)}}catch{if(active)setError((e as Error).message)}}})();return()=>{active=false;if(objectURL)URL.revokeObjectURL(objectURL);release?.()}},[activity.id,activity.revision,imageIdentity]);if(!convention||!map)return <p className="notice">地图资料未提供</p>;if(!url||urlIdentity!==imageIdentity)return <p className="notice" role="status">{error||'正在载入地图'}</p>;return <>{error&&<p className="page-sub" role="status">{error}</p>}<MapCanvas convention={convention} mapId={mapId} assetUrl={url} selectedPoiId={selectedPoiId} favoriteIds={favoriteIds} onSelectPoi={onSelectPoi} route={route} visiblePoiIds={visiblePoiIds}/></>}
+import {useEffect,useRef,useState} from 'react'
+import type {ActivityDTO} from '../../../shared/activity-contract'
+import type {PathResult} from '../../../shared/routing'
+import {mapImageIdentity} from './map-asset-identity'
+import {MapCanvas} from './MapCanvas'
+import {startPublicMap} from './public-map-loading'
+export function PublicMap({activity,mapId,selectedPoiId,favoriteIds,onSelectPoi,route,visiblePoiIds}:{activity:ActivityDTO;mapId:string;selectedPoiId?:string;favoriteIds:string[];onSelectPoi:(id:string)=>void;route?:PathResult;visiblePoiIds?:string[]}){
+ const [url,setUrl]=useState(''),[urlIdentity,setUrlIdentity]=useState(''),[error,setError]=useState('')
+ const loading=useRef<ReturnType<typeof startPublicMap>>()
+ const convention=activity.eventPackage.event.extensions?.convention,map=convention?.maps.find(m=>m.id===mapId),imageIdentity=mapImageIdentity(activity.eventPackage,map),identity=JSON.stringify([activity.id,activity.revision,activity.scheduleRevision,activity.spatialRevision,activity.status,activity.visibility,activity.eventPackage,imageIdentity])
+ useEffect(()=>{setUrl('');setError('');if(!map)return;const controller=startPublicMap(activity,mapId,{show:value=>{setUrl(value);setUrlIdentity(identity)},notice:setError});loading.current=controller;return()=>{controller.stop();loading.current=undefined}},[identity])
+ if(!convention||!map)return <p className="notice">地图资料未提供</p>
+ const retry=error&&error!=='正在查看已下载地图'?<button className="btn btn-surface" onClick={()=>loading.current?.retry()}>重试地图</button>:null
+ if(!url||urlIdentity!==identity)return <><p className="notice" role="status">{error||'正在载入地图'}</p>{retry}</>
+ return <>{error&&<p className="page-sub" role="status">{error}</p>}{retry}<MapCanvas convention={convention} mapId={mapId} assetUrl={url} selectedPoiId={selectedPoiId} favoriteIds={favoriteIds} onSelectPoi={onSelectPoi} route={route} visiblePoiIds={visiblePoiIds}/></>
+}

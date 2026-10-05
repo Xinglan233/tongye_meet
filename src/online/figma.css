@@ -245,3 +245,7 @@
 .figma-code-row-heading>.figma-badge{flex:none}
 .figma-code-row-action{border-top:1px solid var(--line);padding-top:8px;margin-top:8px;text-align:right}
 .figma-danger-action{color:var(--danger)}
+
+/* Imported factual source notes can contain long URLs. */
+.figma-source-note{min-width:0;overflow-wrap:anywhere;word-break:break-word}
+.figma-source-note p{white-space:pre-wrap}
