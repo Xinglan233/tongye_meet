@@ -26,10 +26,14 @@ test('探索、搜索、地点详情和计划保留所选日期，收藏不占�
  await context.close()
 })
 
-test('已缓存活动列表在背景刷新延迟时立即可用',async({page})=>{
+test('已缓存活动列表在背景刷新延迟时立即可用',async({page,browser})=>{
+ await publishFixture(browser,'field-list-cache')
  await page.goto('/');await expect(page.locator('.figma-event-select')).toBeVisible()
- const cached=await page.evaluate(async()=>new Promise<unknown>(resolve=>{const r=indexedDB.open('coukong-online-v1',1);r.onsuccess=()=>{const q=r.result.transaction('records').objectStore('records').get('published-activity-list');q.onsuccess=()=>{resolve(q.result);r.result.close()}}}))
- expect(Array.isArray(cached)&&cached.length>0).toBe(true)
+ // Warm the real persistent cache before measuring the separate cached startup.
+ await expect.poll(async()=>{
+  const cached=await page.evaluate(async()=>new Promise<unknown>(resolve=>{const r=indexedDB.open('coukong-online-v1',1);r.onsuccess=()=>{const q=r.result.transaction('records').objectStore('records').get('published-activity-list');q.onsuccess=()=>{resolve(q.result);r.result.close()}}}))
+  return Array.isArray(cached)&&cached.length>0
+ }).toBe(true)
  let release!:()=>void;const stalled=new Promise<void>(resolve=>{release=resolve})
  await page.route('**/api/v1/events',async route=>{await stalled;await route.continue().catch(()=>{})})
  try{await page.reload();await expect(page.locator('.activity-list-group .sched-row').first()).toBeVisible({timeout:3000})}finally{release()}

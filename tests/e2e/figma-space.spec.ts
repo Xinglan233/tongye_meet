@@ -16,7 +16,7 @@ test('Figma活动栏和详情接真实数据，三个动作独立，未保存日
  await page.locator('.activity-place-pane').getByRole('button',{name:/示例地点 A/}).click()
  const detail=page.getByRole('dialog',{name:'示例地点 A'})
  await expect(detail.locator('.figma-poi-actions')).toBeVisible()
- await detail.getByRole('button',{name:'加入日程',exact:true}).click()
+ await detail.getByRole('button',{name:'加入计划',exact:true}).click()
  const editor=page.getByRole('dialog',{name:'个人安排'})
  await expect(editor.getByLabel('活动名')).toHaveValue('示例地点 A')
  await expect(page.getByRole('dialog')).toHaveCount(1)
