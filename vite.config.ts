@@ -50,6 +50,9 @@ export default defineConfig({
         runtimeCaching: [{
           urlPattern: /\/(?:tesseract\/[^/]+|assets\/ocr-[^/]+\.js)$/,
           handler: async ({request}) => {
+            // Explicit preparation reads current network bytes, never an older
+            // ready cache. Query-versioned requests also bypass older workers.
+            if(request.cache==='no-store')return fetch(request)
             const state=await caches.open('tongye-ocr-state-v1'),recordResponse=await state.match(new URL('tesseract/offline-ready', (self as unknown as {registration:{scope:string}}).registration.scope).href)
             if(recordResponse){try{const record=await recordResponse.json(),resource=record.manifest?.resources?.find((item:{path:string})=>new URL(item.path,(self as unknown as {registration:{scope:string}}).registration.scope).href===request.url);if(resource&&/^tongye-ocr-resources-[a-f0-9]{64}-[a-zA-Z0-9-]+$/.test(record.cacheName)){const cache=await caches.open(record.cacheName),response=await cache.match(request.url,{ignoreVary:true});if(response?.ok){const bytes=await response.clone().arrayBuffer(),digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');if(bytes.byteLength===resource.sizeBytes&&digest===resource.sha256)return response}}}catch{/* Damaged OCR cache is never served as verified bytes. */}}
             return fetch(request)

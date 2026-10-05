@@ -1,5 +1,5 @@
 // Application safeguards, independent of provider quotas and the personal/media budgets.
-// Keep SQL defaults in worker/migrations/0009_group_storage_budget.sql in sync.
+// Keep SQL defaults in worker/migrations/0009_group_storage_budget.sql and 0010_group_release_and_rate_bounds.sql in sync.
 export const GROUP_LIMITS = {
   storageBytes: 64 * 1024 * 1024,
   groups: 1000,
@@ -12,6 +12,9 @@ export const GROUP_LIMITS = {
   // Reserve 1 KiB per retained record (10 MiB total); this is not a provider quota.
   auditRecords: 10000,
   auditMetadataBytes: 10 * 1024 * 1024,
+  rateLimitScopes: 10000,
+  rateLimitKeyBytes: 256,
+  rateLimitMetadataBytes: 10 * 1024 * 1024,
   tombstoneTTLSeconds: 7 * 24 * 60 * 60,
   groupOverheadBytes: 2048,
   resourceOverheadBytes: 1024,

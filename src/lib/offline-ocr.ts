@@ -7,6 +7,9 @@ export interface OcrPreparationIO {origin:string;base:string;fetch:(url:string)=
 const stateCache='tongye-ocr-state-v1',required=['tesseract/worker.min.js','tesseract/tesseract-core-simd-lstm.wasm.js','tesseract/chi_sim.traineddata','tesseract/eng.traineddata']
 function defaultIO():OcrPreparationIO {if(!('caches' in globalThis)||!crypto.subtle)throw new Error('当前浏览器无法保存离线识别资源，请使用联网识别或手动填写');return {origin:location.origin,base:import.meta.env.BASE_URL,fetch:url=>fetch(url,{cache:'no-store',signal:AbortSignal.timeout(120000)}),open:name=>caches.open(name),delete:name=>caches.delete(name),currentManifest:async()=>{const response=await caches.match(new URL(import.meta.env.BASE_URL+'ocr-offline-manifest.json',location.origin).href,{ignoreSearch:true});if(!response)throw new Error('当前版本资源清单未保存');return response.json()}}}
 function url(io:OcrPreparationIO,path:string){return new URL(io.base+path,io.origin).href}
+// Preparation must reach current server bytes even when an older SW still owns
+// the page. Canonical URLs are reserved for verified offline reads.
+function preparationURL(io:OcrPreparationIO,path:string,version:string){const target=new URL(url(io,path));target.searchParams.set('ocr-prepare',version);return target.href}
 async function hash(bytes:ArrayBuffer){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('')}
 async function manifestValid(value:unknown):Promise<OcrManifest>{
  const m=value as OcrManifest
@@ -29,9 +32,9 @@ export async function loadOfflineOcrStatus(options:{io?:OcrPreparationIO}={}):Pr
 let preparing:Promise<OfflineOcrStatus>|undefined
 export function prepareOfflineOcr(options:{io?:OcrPreparationIO;onProgress?:(message:string)=>void}={}):Promise<OfflineOcrStatus>{
  if(!options.io&&preparing)return preparing
- const task=(async()=>{const io=options.io||defaultIO(),response=await io.fetch(url(io,'ocr-offline-manifest.json'));if(!response.ok)throw new Error('离线识别资源暂不可用，请联网后重试');const manifest=await manifestValid(await response.json()),cacheName=`tongye-ocr-resources-${manifest.revision}-${crypto.randomUUID()}`,cache=await io.open(cacheName),state=await io.open(stateCache),stateURL=url(io,'tesseract/offline-ready');let old:OcrRecord|undefined
+ const task=(async()=>{const io=options.io||defaultIO(),response=await io.fetch(preparationURL(io,'ocr-offline-manifest.json',crypto.randomUUID()));if(!response.ok)throw new Error('离线识别资源暂不可用，请联网后重试');const manifest=await manifestValid(await response.json()),cacheName=`tongye-ocr-resources-${manifest.revision}-${crypto.randomUUID()}`,cache=await io.open(cacheName),state=await io.open(stateCache),stateURL=url(io,'tesseract/offline-ready');let old:OcrRecord|undefined
   try{old=await (await state.match(stateURL))?.json()}catch{/* A damaged prior marker can be replaced by a complete preparation. */}
-  try{for(let i=0;i<manifest.resources.length;i++){const resource=manifest.resources[i];options.onProgress?.(`正在准备离线识别 ${i+1}/${manifest.resources.length}`);const file=await io.fetch(url(io,resource.path));await verified(file,resource);await cache.put(url(io,resource.path),file)}
+  try{for(let i=0;i<manifest.resources.length;i++){const resource=manifest.resources[i];options.onProgress?.(`正在准备离线识别 ${i+1}/${manifest.resources.length}`);const file=await io.fetch(preparationURL(io,resource.path,resource.sha256));await verified(file,resource);await cache.put(url(io,resource.path),file)}
    // Read every stored response before the single ready-marker commit. Quota or
    // interrupted downloads cannot replace the previous complete active cache.
    for(const resource of manifest.resources)await verified(await cache.match(url(io,resource.path)),resource)

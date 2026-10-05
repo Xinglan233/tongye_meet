@@ -1,7 +1,7 @@
 import {API_BASE} from './api-base'
 import {test,expect} from '@playwright/test'
 import {build,preview,type PreviewServer} from 'vite'
-import {mkdtempSync,readFileSync} from 'node:fs'
+import {mkdtempSync,readFileSync,writeFileSync,cpSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join as joinPath} from 'node:path'
 import {create,join,closeSheet} from './ui-helpers'
@@ -23,4 +23,28 @@ test('明确准备中文英文引擎后，真实生产SW断网重启仍能截图
  await member.getByRole('dialog',{name:'截图识别',exact:true}).locator('input[type=file]').setInputFiles({name:'offline-booking.png',mimeType:'image/png',buffer:Buffer.from(image,'base64')})
  await expect(member.getByRole('button',{name:'保存校对结果',exact:true})).toBeVisible({timeout:60000});expect(resources.some(url=>url.endsWith('/chi_sim.traineddata'))).toBe(true);expect(resources.some(url=>url.endsWith('/eng.traineddata'))).toBe(true)
  await ownerContext.close();await memberContext.close()
+})
+
+test('A准备后升级同路径B资源，重新准备可恢复完整B并保持离线校验门禁',async({browser})=>{
+ test.setTimeout(120000)
+ const ownerContext=await browser.newContext(),memberContext=await browser.newContext({serviceWorkers:'allow'}),owner=await ownerContext.newPage(),member=await memberContext.newPage()
+ try{
+  const link=await create(owner,'OCR升级重准备','http://localhost:5174');await join(member,link,'升级识别成员');await member.evaluate(async()=>{await navigator.serviceWorker.ready});await member.reload()
+  await member.getByRole('button',{name:'截图识别',exact:true}).click();await member.getByRole('button',{name:'准备离线识别',exact:true}).click();await expect(member.getByRole('status').filter({hasText:'离线识别已准备，可在断网后识别截图'})).toBeVisible({timeout:15000})
+  const before=await member.evaluate(async()=>{const cache=await caches.open('tongye-ocr-state-v1');return (await (await cache.match(location.origin+'/tesseract/offline-ready'))!.json()).manifest.revision})
+  await closeSheet(member)
+  // A real second production build changes bytes at an unchanged worker URL.
+  // Public fixtures are copied so this regression never changes source assets.
+  const variant=mkdtempSync(joinPath(tmpdir(),'tongye-ocr-public-b-'));cpSync('public',variant,{recursive:true});const workerPath=joinPath(variant,'tesseract/worker.min.js');writeFileSync(workerPath,readFileSync(workerPath,'utf8')+'\n// OCR upgrade fixture B\n')
+  await build({publicDir:variant,build:{outDir:output,emptyOutDir:false},logLevel:'warn'})
+  const after=JSON.parse(readFileSync(joinPath(output,'ocr-offline-manifest.json'),'utf8')).revision;expect(after).not.toBe(before)
+  await member.evaluate(async()=>{const registration=await navigator.serviceWorker.getRegistration();await registration!.update()})
+  await member.waitForFunction(async()=>!!(await navigator.serviceWorker.getRegistration())?.waiting,{},{timeout:15000})
+  await member.evaluate(async()=>{const registration=await navigator.serviceWorker.getRegistration();await new Promise<void>(resolve=>{navigator.serviceWorker.addEventListener('controllerchange',()=>resolve(),{once:true});registration!.waiting!.postMessage({type:'SKIP_WAITING'})})})
+  await member.reload();await member.getByRole('button',{name:'截图识别',exact:true}).click();await expect(member.getByRole('status').filter({hasText:'离线识别资源不完整'})).toBeVisible({timeout:15000})
+  await member.getByRole('button',{name:'准备离线识别',exact:true}).click();await expect(member.getByRole('status').filter({hasText:'离线识别已准备，可在断网后识别截图'})).toBeVisible({timeout:10000})
+  const ready=await member.evaluate(async()=>{const cache=await caches.open('tongye-ocr-state-v1');return (await (await cache.match(location.origin+'/tesseract/offline-ready'))!.json()).manifest.revision});expect(ready).toBe(after)
+  await closeSheet(member);await memberContext.setOffline(true);await member.reload();await member.getByRole('button',{name:'截图识别',exact:true}).click();await expect(member.getByText(/离线识别已准备 ·/)).toBeVisible()
+  const damagedRejected=await member.evaluate(async()=>{const state=await caches.open('tongye-ocr-state-v1'),record=await (await state.match(location.origin+'/tesseract/offline-ready'))!.json(),cache=await caches.open(record.cacheName);await cache.put(location.origin+'/tesseract/worker.min.js',new Response('corrupted worker'));try{await fetch('/tesseract/worker.min.js');return false}catch{return true}});expect(damagedRejected).toBe(true)
+ }finally{await ownerContext.close();await memberContext.close()}
 })
